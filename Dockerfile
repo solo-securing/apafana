@@ -1,9 +1,12 @@
-FROM node:14.15.5-alpine3.13 as js-builder
+FROM node:14.15.5-alpine3.13 AS js-builder
+
+RUN apk add --no-cache git
 
 WORKDIR /usr/src/app/
 
 COPY package.json yarn.lock ./
 COPY packages packages
+COPY patches patches
 
 RUN yarn install --pure-lockfile --no-progress
 
@@ -13,26 +16,28 @@ COPY tools tools
 COPY scripts scripts
 COPY emails emails
 
-ENV NODE_ENV production
+ENV NODE_ENV=production
 RUN yarn build
 
-FROM golang:1.16.1-alpine3.13 as go-builder
+FROM golang:1.24-alpine AS go-builder
 
 RUN apk add --no-cache gcc g++
 
 WORKDIR $GOPATH/src/github.com/grafana/grafana
 
 COPY go.mod go.sum ./
+COPY pkg pkg
 
 RUN go mod verify
 
-COPY pkg pkg
 COPY build.go package.json ./
 
-RUN go run build.go build
+RUN go run build.go build && \
+    mv /go/src/github.com/grafana/grafana/bin/linux-$(go env GOARCH)/grafana-server /go/src/github.com/grafana/grafana/bin/ && \
+    mv /go/src/github.com/grafana/grafana/bin/linux-$(go env GOARCH)/grafana-cli /go/src/github.com/grafana/grafana/bin/
 
 # Final stage
-FROM alpine:3.13
+FROM alpine:3.22
 
 LABEL maintainer="Grafana team <hello@grafana.com>"
 
@@ -73,7 +78,7 @@ RUN export GF_GID_NAME=$(getent group $GF_GID | cut -d':' -f1) && \
     chown -R "grafana:$GF_GID_NAME" "$GF_PATHS_DATA" "$GF_PATHS_HOME/.aws" "$GF_PATHS_LOGS" "$GF_PATHS_PLUGINS" "$GF_PATHS_PROVISIONING" && \
     chmod -R 777 "$GF_PATHS_DATA" "$GF_PATHS_HOME/.aws" "$GF_PATHS_LOGS" "$GF_PATHS_PLUGINS" "$GF_PATHS_PROVISIONING"
 
-COPY --from=go-builder /go/src/github.com/grafana/grafana/bin/linux-amd64/grafana-server /go/src/github.com/grafana/grafana/bin/linux-amd64/grafana-cli ./bin/
+COPY --from=go-builder /go/src/github.com/grafana/grafana/bin/grafana-server /go/src/github.com/grafana/grafana/bin/grafana-cli ./bin/
 COPY --from=js-builder /usr/src/app/public ./public
 COPY --from=js-builder /usr/src/app/tools ./tools
 
