@@ -1,4 +1,9 @@
-FROM node:14.15.5-alpine3.13 AS js-builder
+ARG BASE_IMAGE=alpine:3.22
+ARG NODE_IMAGE=node:22-alpine3.22
+ARG GO_IMAGE=golang:1.24-alpine3.22
+
+
+FROM ${NODE_IMAGE} AS js-builder
 
 RUN apk add --no-cache git
 
@@ -8,6 +13,7 @@ COPY package.json yarn.lock ./
 COPY packages packages
 COPY patches patches
 
+ENV NODE_OPTIONS="--openssl-legacy-provider --max_old_space_size=4096"
 RUN yarn install --pure-lockfile --no-progress
 
 COPY tsconfig.json .eslintrc .editorconfig .browserslistrc .prettierrc.js ./
@@ -19,7 +25,8 @@ COPY emails emails
 ENV NODE_ENV=production
 RUN yarn build
 
-FROM golang:1.24-alpine AS go-builder
+
+FROM ${GO_IMAGE} AS go-builder
 
 RUN apk add --no-cache gcc g++
 
@@ -36,8 +43,9 @@ RUN go run build.go build && \
     mv /go/src/github.com/grafana/grafana/bin/linux-$(go env GOARCH)/grafana-server /go/src/github.com/grafana/grafana/bin/ && \
     mv /go/src/github.com/grafana/grafana/bin/linux-$(go env GOARCH)/grafana-cli /go/src/github.com/grafana/grafana/bin/
 
+
 # Final stage
-FROM alpine:3.22
+FROM ${BASE_IMAGE}
 
 LABEL maintainer="Grafana team <hello@grafana.com>"
 
